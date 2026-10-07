@@ -287,41 +287,46 @@ def percentile(values: List[float], p: float) -> float:
         return sorted_vals[-1]
     return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
 
-@app.post("/")
-async def analytics(request: Request) -> JSONResponse:
+async def calculate_metrics(request: Request):
     body = await request.json()
-    regions: List[str] = body.get("regions", [])
-    threshold_ms: float = body.get("threshold_ms", 180)
 
-    result: Dict[str, Any] = {}
+    regions = body["regions"]
+    threshold_ms = body["threshold_ms"]
+
+    output = {}
 
     for region in regions:
-        # Filter records for this region
-        records = [r for r in TELEMETRY_DATA if r.get("region") == region]
+        records = [
+            record
+            for record in TELEMETRY_DATA
+            if record["region"] == region
+        ]
 
-        if not records:
-            # If no data for region, return zeros
-            result[region] = {
-                "avg_latency": 0.0,
-                "p95_latency": 0.0,
-                "avg_uptime": 0.0,
-                "breaches": 0,
-            }
-            continue
+        latencies = [record["latency_ms"] for record in records]
+        uptimes = [record["uptime"] for record in records]
 
-        latencies = [r["latency_ms"] for r in records]
-        uptimes = [r["uptime"] for r in records]
-
-        avg_latency = statistics.mean(latencies)
-        p95_latency = percentile(latencies, 95)
-        avg_uptime = statistics.mean(uptimes)
-        breaches = sum(1 for lat in latencies if lat > threshold_ms)
-
-        result[region] = {
-            "avg_latency": avg_latency,
-            "p95_latency": p95_latency,
-            "avg_uptime": avg_uptime,
-            "breaches": breaches,
+        output[region] = {
+            "avg_latency": statistics.mean(latencies),
+            "p95_latency": percentile(latencies, 95),
+            "avg_uptime": statistics.mean(uptimes),
+            "breaches": sum(
+                latency > threshold_ms
+                for latency in latencies
+            ),
         }
 
-    return JSONResponse(result)
+    return output
+
+
+@app.post("/")
+async def analytics_root(request: Request):
+    return await calculate_metrics(request)
+
+
+@app.post("/api")
+async def analytics_api(request: Request):
+    return await calculate_metrics(request)
+
+@app.post("/api/latency")
+async def analytics_api(request: Request):
+    return await calculate_metrics(request)
