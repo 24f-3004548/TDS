@@ -4,12 +4,9 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse
-
 
 app = FastAPI()
 
-# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,8 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Load telemetry data
 DATA_PATH = Path(__file__).parent.parent / "q-vercel-latency.json"
 
 with open(DATA_PATH, "r") as f:
@@ -44,15 +39,12 @@ def percentile(values, p):
     if lower == upper:
         return values[lower]
 
-    weight = position - lower
-
-    return (
-        values[lower]
-        + (values[upper] - values[lower]) * weight
-    )
+    return values[lower] + (
+        values[upper] - values[lower]
+    ) * (position - lower)
 
 
-@app.post("/")
+@app.post("/api/latency")
 def latency_metrics(request: RequestBody):
 
     result = {}
@@ -60,49 +52,24 @@ def latency_metrics(request: RequestBody):
     for region in request.regions:
 
         records = [
-            row
-            for row in DATA
+            row for row in DATA
             if row["region"] == region
         ]
 
         if not records:
             continue
 
-        latencies = [
-            row["latency_ms"]
-            for row in records
-        ]
-
-        uptimes = [
-            row["uptime_pct"]
-            for row in records
-        ]
-
-        avg_latency = sum(latencies) / len(latencies)
-
-        p95_latency = percentile(
-            latencies,
-            0.95
-        )
-
-        avg_uptime = sum(uptimes) / len(uptimes)
-
-        breaches = sum(
-            1
-            for latency in latencies
-            if latency > request.threshold_ms
-        )
+        latencies = [row["latency_ms"] for row in records]
+        uptimes = [row["uptime_pct"] for row in records]
 
         result[region] = {
-            "avg_latency": avg_latency,
-            "p95_latency": p95_latency,
-            "avg_uptime": avg_uptime,
-            "breaches": breaches
+            "avg_latency": sum(latencies) / len(latencies),
+            "p95_latency": percentile(latencies, 0.95),
+            "avg_uptime": sum(uptimes) / len(uptimes),
+            "breaches": sum(
+                latency > request.threshold_ms
+                for latency in latencies
+            )
         }
 
-    return JSONResponse(
-        content=result,
-        headers={
-            "Access-Control-Allow-Origin": "*"
-        }
-    )
+    return result
