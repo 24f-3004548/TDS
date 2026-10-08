@@ -54,7 +54,7 @@ def compute(q: Query):
             "breaches": sum(1 for x in lat if x > q.threshold_ms),
         }
     # Per-region metrics at top level, and also nested under "regions"
-    return out
+    return {"regions": out}
 
 
 @app.post("/")
